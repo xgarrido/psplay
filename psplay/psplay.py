@@ -83,7 +83,6 @@ class App:
             return value
 
         self.maps_info_list = list()
-        self.layer_ids = list()
         self.map_config = _get_section(self.config, "map")
         layers = _get_section(self.map_config, "layers")
         tiles = utils.get_tiles(layers)
@@ -102,39 +101,17 @@ class App:
             tile_config.update(**tile)
             self.layers.append(ColorizableTileLayer(**tile_config))
 
-        # for layer in layers:
-        #     # Data info
-        #     layer_id = _get_section(layer, "id")
-        #     self.layer_ids.append(layer_id)
-        #     fits = _get_section(layer, "fits")
-        #     data_type = layer.get("data_type", "IQU")
-        #     self.maps_info_list.append(dict(name=fits, data_type=data_type, id=layer_id, cal=None))
-
-        #     # Tiles
-        #     tiles = _get_section(layer, "tiles")
-        #     path = _get_section(tiles, "path")
-
-        # #     if any(s in path for s in [".png", "http"]):
-        # #         self.layers.append(ColorizableTileLayer(**tile_default))
-        # #     else:
-        # #         for i, item in enumerate(data_type):
-        # #             name = "{} - {} - {}".format(tiles.get("prefix", "CMB"), layer_id, item)
-        # #             url = os.path.join("files", path, fits, "{z}/tile_{y}_{x}_%s.png" % i)
-        # #             attribution = attribution if use_layer_control else name
-        # #             tile_config = deepcopy(tile_default)
-        # #             tile_config.update(
-        # #                 dict(
-        # #                     url=url,
-        # #                     attribution=attribution,
-        # #                     name=name,
-        # #                     value_min=vrange[i][0],
-        # #                     value_max=vrange[i][1],
-        # #                 )
-        # #             )
-        # #             self.layers.append(ColorizableTileLayer(**tile_config))
-
-        # # if self.map_config.get("sort_layers", True):
-        # #     self.layers.sort()
+        # Store original fits map
+        self.compute_config = _get_section(self.config, "compute")
+        for imap in _get_section(self.compute_config, "maps"):
+            self.maps_info_list.append(
+                dict(
+                    id=_get_section(imap, "id"),
+                    name=_get_section(imap, "fits"),
+                    data_type=imap.get("data_type", "IQU"),
+                    cal=None,
+                )
+            )
 
     def _add_map(self):
         default_keybindings = dict(colormap=["g"], scale=["u", "i"], cache=["z"])
@@ -253,7 +230,7 @@ class App:
             value=False, description="Only temperature", layout=layout
         )
         self.lmax = widgets.IntSlider(
-            value=self.plot_config.get("lmax", 1000),
+            value=self.compute_config.get("lmax", 1000),
             min=0,
             max=10000,
             step=100,
@@ -324,14 +301,14 @@ class App:
         # Config
         self.use_toeplitz = widgets.Checkbox(value=False, description="Use Toeplitz approx.")
         self.bin_size = widgets.IntSlider(
-            value=self.plot_config.get("bin size", 40),
+            value=self.compute_config.get("bin size", 40),
             min=0,
             max=200,
             step=10,
             description="Bin size",
         )
         config = widgets.HBox([widgets.VBox([self.use_toeplitz])])
-        if not self.plot_config.get("binning_file"):
+        if not self.compute_config.get("binning_file"):
             config.children += (widgets.VBox([self.bin_size]),)
         accordion = widgets.Accordion(children=[config], selected_index=None)
         accordion.set_title(0, "Parameters")
@@ -400,9 +377,9 @@ class App:
                     kwargs.update(
                         dict(
                             error_method="master",
-                            binning_file=self.plot_config.get("binning_file"),
+                            binning_file=self.compute_config.get("binning_file"),
                             bin_size=self.bin_size.value,
-                            beam_file=self.plot_config.get("beam_file"),
+                            beam_file=self.compute_config.get("beam_file"),
                             compute_T_only=self.compute_T_only.value,
                             l_exact=800 if self.use_toeplitz.value else None,
                             l_band=2000 if self.use_toeplitz.value else None,
