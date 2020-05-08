@@ -1,7 +1,7 @@
 # Copyright (c) Simons Observatory.
 # Distributed under the terms of the Modified BSD License.
 #
-from traitlets import CFloat, Dict, Enum, Unicode, default, validate
+from traitlets import CFloat, CInt, Dict, Enum, Unicode, default, validate
 
 from ipyleaflet import Control, Layer, LocalTileLayer, allowed_crs
 
@@ -36,7 +36,7 @@ class ColorizableTileLayer(LocalTileLayer):
     value_min = CFloat(-500).tag(sync=True, o=True)
     value_max = CFloat(+500).tag(sync=True, o=True)
     scale = CFloat(1.0).tag(sync=True, o=True)
-    tag = Unicode("layer").tag(sync=True, o=True)
+    tag_id = CInt(0).tag(sync=True, o=True)
 
     def __lt__(self, other):
         return self.name[-1] < other.name[-1]
@@ -79,6 +79,8 @@ class KeyBindingControl(Control):
         Makes sure no more than 2 keys are given.
         """
         for k, v in proposal.value.items():
+            if not isinstance(v, list):
+                v = v.get("keys", [])
             if len(v) > 2:
                 raise ValueError("More than 2 keys for a keybinding is not allowed!")
         return proposal.value

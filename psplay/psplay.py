@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from ipyleaflet import (DrawControl, FullScreenControl, LayersControl, Map,
                         MapStyle, WidgetControl)
 
+from . import utils
 from .ipyleaflet import (ColorizableTileLayer, Graticule, KeyBindingControl,
                          StatusBarControl, allowed_colormaps)
 from .ps_tools import compute_ps
@@ -85,81 +86,60 @@ class App:
         self.layer_ids = list()
         self.map_config = _get_section(self.config, "map")
         layers = _get_section(self.map_config, "layers")
-        for layer in layers:
-            # Data info
-            layer_id = _get_section(layer, "id")
-            self.layer_ids.append(layer_id)
-            fits = _get_section(layer, "fits")
-            data_type = layer.get("data_type", "IQU")
-            self.maps_info_list.append(dict(name=fits, data_type=data_type, id=layer_id, cal=None))
+        tiles = utils.get_tiles(layers)
+        tile_default = dict(
+            base=True,
+            min_zoom=-5,
+            max_zoom=+5,
+            min_native_zoom=-5,
+            max_native_zoom=0,
+            tile_size=675,
+            show_loading=False,
+            colormap=layers.get("colormap", "planck"),
+        )
+        for tile in tiles:
+            tile_config = deepcopy(tile_default)
+            tile_config.update(**tile)
+            self.layers.append(ColorizableTileLayer(**tile_config))
 
-            # Tiles
-            tiles = _get_section(layer, "tiles")
-            path = _get_section(tiles, "path")
+        # for layer in layers:
+        #     # Data info
+        #     layer_id = _get_section(layer, "id")
+        #     self.layer_ids.append(layer_id)
+        #     fits = _get_section(layer, "fits")
+        #     data_type = layer.get("data_type", "IQU")
+        #     self.maps_info_list.append(dict(name=fits, data_type=data_type, id=layer_id, cal=None))
 
-            # Set color range
-            vrange = [[-500, +500], [-100, +100], [-100, +100]]
-            _range = tiles.get("range")
-            if _range:
-                _val = _range.get("temperature")
-                vrange[0] = [-_val, +_val] if _val else vrange[0]
-                _val = _range.get("polarization")
-                vrange[1] = [-_val, +_val] if _val else vrange[1]
-                vrange[2] = vrange[1] if _val else vrange[2]
-            for i, j in enumerate(["min", "max"]):
-                _m = tiles.get(j)
-                if _m:
-                    _val = _m.get("temperature")
-                    vrange[0][i] = _val if _val else vrange[0][i]
-                    _val = _m.get("polarization")
-                    vrange[1][i] = _val if _val else vrange[1][i]
-                    vrange[2][i] = vrange[1][i] if _val else vrange[2][i]
+        #     # Tiles
+        #     tiles = _get_section(layer, "tiles")
+        #     path = _get_section(tiles, "path")
 
-            # Check if LayerControl is used, if not attribution becomes layer name
-            use_layer_control = self.map_config.get("widgets", {}).get("use_layer_control", False)
-            name = tiles.get("name", "")
-            attribution = tiles.get("attribution", so_attribution) if use_layer_control else name
-            tile_default = dict(
-                url=path,
-                base=True,
-                min_zoom=-5,
-                max_zoom=+5,
-                min_native_zoom=-5,
-                max_native_zoom=0,
-                tile_size=675,
-                attribution=attribution,
-                name=name,
-                show_loading=False,
-                colormap=tiles.get("colormap", "planck"),
-                value_min=vrange[0][0],
-                value_max=vrange[0][1],
-            )
+        # #     if any(s in path for s in [".png", "http"]):
+        # #         self.layers.append(ColorizableTileLayer(**tile_default))
+        # #     else:
+        # #         for i, item in enumerate(data_type):
+        # #             name = "{} - {} - {}".format(tiles.get("prefix", "CMB"), layer_id, item)
+        # #             url = os.path.join("files", path, fits, "{z}/tile_{y}_{x}_%s.png" % i)
+        # #             attribution = attribution if use_layer_control else name
+        # #             tile_config = deepcopy(tile_default)
+        # #             tile_config.update(
+        # #                 dict(
+        # #                     url=url,
+        # #                     attribution=attribution,
+        # #                     name=name,
+        # #                     value_min=vrange[i][0],
+        # #                     value_max=vrange[i][1],
+        # #                 )
+        # #             )
+        # #             self.layers.append(ColorizableTileLayer(**tile_config))
 
-            if any(s in path for s in [".png", "http"]):
-                self.layers.append(ColorizableTileLayer(**tile_default))
-            else:
-                for i, item in enumerate(data_type):
-                    name = "{} - {} - {}".format(tiles.get("prefix", "CMB"), layer_id, item)
-                    url = os.path.join("files", path, fits, "{z}/tile_{y}_{x}_%s.png" % i)
-                    attribution = attribution if use_layer_control else name
-                    tile_config = deepcopy(tile_default)
-                    tile_config.update(
-                        dict(
-                            url=url,
-                            attribution=attribution,
-                            name=name,
-                            value_min=vrange[i][0],
-                            value_max=vrange[i][1],
-                        )
-                    )
-                    self.layers.append(ColorizableTileLayer(**tile_config))
-
-        if self.map_config.get("sort_layers", True):
-            self.layers.sort()
+        # # if self.map_config.get("sort_layers", True):
+        # #     self.layers.sort()
 
     def _add_map(self):
-        default_keybindings = dict(colormap=["g"], scale=["u", "i"], layer=["j", "k"], cache=["z"])
-        default_keybindings.update(self.config.get("map").get("keybindings", {}))
+        default_keybindings = dict(colormap=["g"], scale=["u", "i"], cache=["z"])
+        layers = self.map_config.get("layers")
+        default_keybindings.update(utils.get_keybindings(layers))
         self.m = Map(
             layers=self.layers,
             controls=(
