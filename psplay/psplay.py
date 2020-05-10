@@ -37,6 +37,14 @@ default_colorscale = generate_default_colorscale()
 out = widgets.Output()
 
 
+def _get_section(section, name):
+    # Python 3.8 if not value := section.get(name):
+    value = section.get(name)
+    if not value:
+        raise ValueError("Missing '{}' section".format(name))
+    return value
+
+
 class App:
     """ An ipywidgets and plotly application for CMB map and power spectra visualization"""
 
@@ -47,8 +55,9 @@ class App:
             with open(config, "r") as stream:
                 self.config = yaml.load(stream, Loader=yaml.FullLoader)
 
-        self.map_config = self.config.get("map", {})
-        self.plot_config = self.config.get("plot", {})
+        self.map_config = _get_section(self.config, "map")
+        self.compute_config = _get_section(self.config, "compute")
+        self.plot_config = _get_section(self.config, "plot")
 
         self.m = None
         self.p = None
@@ -57,6 +66,7 @@ class App:
         self.layers = [Graticule()]
         self._add_layers()
         self._add_map()
+        self._add_compute()
         self._add_plot()
         self._add_theory()
 
@@ -75,16 +85,7 @@ class App:
         return self.p
 
     def _add_layers(self):
-        def _get_section(section, name):
-            # Python 3.8 if not value := section.get(name):
-            value = section.get(name)
-            if not value:
-                raise ValueError("Missing '{}' section".format(name))
-            return value
-
-        self.maps_info_list = list()
-        self.map_config = _get_section(self.config, "map")
-        layers = _get_section(self.map_config, "layers")
+        layers = self.map_config.get("layers", {})
         tiles = utils.get_tiles(layers)
         tile_default = dict(
             base=True,
@@ -94,29 +95,17 @@ class App:
             max_native_zoom=0,
             tile_size=675,
             show_loading=False,
-            colormap=layers.get("colormap", "planck"),
+            colormap=layers.get("colormap", {}).get("name", "planck"),
+            scale_amplitude=layers.get("colorscale", {}).get("amplitude", 0.1),
         )
         for tile in tiles:
             tile_config = deepcopy(tile_default)
             tile_config.update(**tile)
             self.layers.append(ColorizableTileLayer(**tile_config))
 
-        # Store original fits map
-        self.compute_config = _get_section(self.config, "compute")
-        for imap in _get_section(self.compute_config, "maps"):
-            self.maps_info_list.append(
-                dict(
-                    id=_get_section(imap, "id"),
-                    name=_get_section(imap, "fits"),
-                    data_type=imap.get("data_type", "IQU"),
-                    cal=None,
-                )
-            )
-
     def _add_map(self):
-        default_keybindings = dict(colormap=["g"], scale=["u", "i"], cache=["z"])
-        layers = self.map_config.get("layers")
-        default_keybindings.update(utils.get_keybindings(layers))
+        default_keybindings = dict(colormap=["g"], colorscale=["u", "i"], cache=["z"])
+        default_keybindings.update(utils.get_keybindings(self.map_config.get("layers", {})))
         self.m = Map(
             layers=self.layers,
             controls=(
@@ -199,6 +188,32 @@ class App:
 
             cmap.observe(on_cmap_change, names="value")
             self.m.add_control(WidgetControl(widget=cmap, position="bottomright"))
+
+    def _add_compute(self):
+        # Store original fits map
+        self.maps_info_list = list()
+        for imap in self.compute_config.get("maps", []):
+            self.maps_info_list.append(
+                dict(
+                    id=_get_section(imap, "id"),
+                    name=_get_section(imap, "file"),
+                    data_type=imap.get("data_type", "IQU"),
+                    cal=None,
+                )
+            )
+
+        self.masks_info_list = dict()
+        for imask in self.compute_config.get("masks", []):
+            mask_info = dict(name=_get_section(imask, "file"))
+            apodization = imask.get("apodization")
+            if apodization:
+                mask_info.update(
+                    dict(
+                        apo_type=apodization.get("type", "C1"),
+                        apo_radius=apodization.get("radius", 0.3),
+                    )
+                )
+            self.masks_info_list[_get_section(imask, "type")] = mask_info
 
     def _add_theory(self):
         self.theory = None
@@ -344,33 +359,13 @@ class App:
         self.export_button.disabled = True
         self.clean_button.description = "Clean patches ({})".format(len(self.patches))
 
-        def parse_rectangle(coordinates):
-            return [coordinates[0][0][::-1], coordinates[0][2][::-1]]
-
         for ps_method, compute in zip(
             ["master", "2dflat"], [self.compute_1d.value, self.compute_2d.value]
         ):
             if not compute:
                 continue
             for ipatch, (name, patch) in enumerate(self.patches.items()):
-                print("Compute patch #{}".format(ipatch))
-                geometry = patch.get("geometry")
-                if geometry.get("type") == "Polygon":
-                    patch_dict = {
-                        "patch_type": "Rectangle",
-                        "patch_coordinate": parse_rectangle(geometry.get("coordinates")),
-                    }
-                elif geometry.get("type") == "Point":
-                    style = patch.get("properties").get("style")
-                    if style.get("radius"):
-                        patch_dict = {
-                            "patch_type": "Disk",
-                            "center": geometry.get("coordinates")[::-1],
-                            "radius": style.get("radius"),
-                        }
-                else:
-                    print("Shape '{}' not supported".format(geometry))
-                    continue
+                print("Compute patch #{} for '{}' method".format(ipatch, ps_method))
 
                 kwargs = dict(ps_method=ps_method, lmax=self.lmax.value,)
                 if ps_method == "master":
@@ -380,6 +375,8 @@ class App:
                             binning_file=self.compute_config.get("binning_file"),
                             bin_size=self.bin_size.value,
                             beam_file=self.compute_config.get("beam_file"),
+                            source_mask=self.masks_info_list.get("source"),
+                            galactic_mask=self.masks_info_list.get("galactic"),
                             compute_T_only=self.compute_T_only.value,
                             l_exact=800 if self.use_toeplitz.value else None,
                             l_band=2000 if self.use_toeplitz.value else None,
@@ -393,6 +390,7 @@ class App:
                     spectra, spec_name_list, lb, ps_dict, cov_dict = method.get("results").values()
                     continue
 
+                patch_dict = utils.build_patch_geometry(patch)
                 spectra, spec_name_list, lb, ps_dict, cov_dict = compute_ps(
                     patch=patch_dict, maps_info_list=self.maps_info_list, **kwargs
                 )

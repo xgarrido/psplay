@@ -9,7 +9,7 @@ L.Map.include({
     _updateColors: function (e, layer) {
         if (layer.options && "colormap" in layer.options) {
             if (keybindings["colormap"].includes(e.key)) {
-                console.log("Colormap");
+                console.log("Change colormap");
                 var colormap = layer.options.colormap;
                 var colormaps = Object.keys(L.ColorizableUtils.colormaps);
                 for (var i = 0; i < colormaps.length; i++) {
@@ -18,14 +18,12 @@ L.Map.include({
                         break;
                     }
                 }
-            } else if (keybindings["scale"][0] == e.key) {
-                console.log("Increase color");
-                var scale = layer.options.scale;
-                layer.options.scale *= 1.1;
-            } else if (keybindings["scale"][1] == e.key) {
-                console.log("Decrease color");
-                var scale = layer.options.scale;
-                layer.options.scale /= 1.1;
+            } else {
+                console.log("Change color scale");
+                for (var i = 0; i < keybindings["colorscale"].length; i++) {
+                    if (e.key == keybindings["colorscale"][i])
+                        layer.options.scale *= Math.pow(1. + layer.options.scaleAmplitude, 2*i-1);
+                }
             }
         }
     },
@@ -68,7 +66,7 @@ L.Map.include({
             var layers = targets[0]._layers;
 
             if (("colormap" in keybindings && keybindings["colormap"].includes(e.key)) ||
-                ("scale" in keybindings && keybindings["scale"].includes(e.key))) {
+                ("colorscale" in keybindings && keybindings["colorscale"].includes(e.key))) {
                 if (this.layer_groups) {
                     console.log("Update color");
                     for (var key in this.layer_groups) {
@@ -134,11 +132,11 @@ L.Map.include({
             console.log("Add layer with tag id", tagId);
 
             if (!(tagId in this.layer_groups)) {
-                // Only load the first one
-                if (Object.keys(this.layer_groups).length == 0)
-                    this.baseAddLayer(layer);
-                this.layer_groups[tagId] = layer;
                 layer.setCache(cache);
+                this.layer_groups[tagId] = layer;
+                // Only load the first one
+                if (Object.keys(this.layer_groups).length == 1)
+                    this.baseAddLayer(layer);
             } else {
                 // First remove all layers from map
                 this.removeAllLayers();
@@ -189,7 +187,7 @@ L.Control.KeyBinding = L.Control.extend({
                     text += "<b>" + keys[0] + "</b> key";
                 if (key == "cache")
                     text += " to clean the cache";
-                else if (key == "scale")
+                else if (key == "colorscale")
                     text += " to change color scale by &plusmn; 10%";
                 else
                     text += " to change <b>" + key + "</b>";

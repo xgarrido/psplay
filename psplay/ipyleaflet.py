@@ -36,10 +36,8 @@ class ColorizableTileLayer(LocalTileLayer):
     value_min = CFloat(-500).tag(sync=True, o=True)
     value_max = CFloat(+500).tag(sync=True, o=True)
     scale = CFloat(1.0).tag(sync=True, o=True)
+    scale_amplitude = CFloat(0.1).tag(sync=True, o=True)
     tag_id = CInt(0).tag(sync=True, o=True)
-
-    def __lt__(self, other):
-        return self.name[-1] < other.name[-1]
 
 
 class StatusBarControl(Control):
@@ -70,17 +68,24 @@ class KeyBindingControl(Control):
 
     @default("keybindings")
     def _default_keybindings(self):
-        return dict(colormap=["g"], scale=["u", "i"], layer=["j", "k"], cache=["z"])
+        return dict(colormap=["g"], colorscale=["u", "i"], cache=["z"])
 
     @validate("keybindings")
     def _validate_keybindings(self, proposal):
         """Validate keybindings list.
 
-        Makes sure no more than 2 keys are given.
+        Makes sure no more than 2 keys are given and no duplicates.
         """
+        keys = set()
         for k, v in proposal.value.items():
-            if not isinstance(v, list):
+            if isinstance(v, dict):
                 v = v.get("keys", [])
             if len(v) > 2:
                 raise ValueError("More than 2 keys for a keybinding is not allowed!")
+            duplicates = keys.intersection(set(v))
+            if len(duplicates) > 0:
+                raise ValueError(
+                    "Duplicate {} entry in keybindings. Check your keys!".format(duplicates)
+                )
+            keys.update(v)
         return proposal.value
